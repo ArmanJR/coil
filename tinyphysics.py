@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import logging
 import numpy as np
 import onnxruntime as ort
 import os
@@ -21,6 +22,8 @@ from tqdm.contrib.concurrent import process_map
 from controllers import BaseController
 from run_results import RunResults
 from path_tracking import PathTracker
+
+LOGGER = logging.getLogger(__name__)
 
 sns.set_theme()
 signal.signal(signal.SIGINT, signal.SIG_DFL)  # Enable Ctrl-C on plot windows
@@ -146,6 +149,21 @@ class TinyPhysicsSimulator:
     self.current_lataccel_history.append(self.current_lataccel)
 
   def control_step(self, step_idx: int) -> None:
+    remote = getattr(self.controller, "decision_mode", "local") == "remote"
+    if remote and step_idx < CONTROL_START_IDX:
+      # Keep decision-controller memory fresh regardless of whether the driver
+      # was selected before warm-up or at the first active frame. Recorded
+      # steering still warms the physics model and consumes the same RNG stream.
+      if step_idx == CONTEXT_LENGTH:
+        LOGGER.info(
+          "Remote controller warm-up uses recorded inputs; memory starts at frame=%d",
+          CONTROL_START_IDX,
+        )
+      action = self.data["steer_command"].values[step_idx]
+      self.action_history.append(np.clip(action, STEER_RANGE[0], STEER_RANGE[1]))
+      return
+    if remote and step_idx == CONTROL_START_IDX:
+      LOGGER.info("Remote controller first active frame=%d startup=fresh", step_idx)
     prepare = getattr(self.controller, "prepare_step", None)
     if prepare is not None:
       prepare(step_idx, self.action_history[-1], step_idx >= CONTROL_START_IDX)

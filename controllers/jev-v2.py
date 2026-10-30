@@ -8,6 +8,8 @@ reference remains the original target trajectory; we never integrate the
 corrected target into the reference path.
 
 The first active PID update is seeded to reproduce the previous applied steering.
+The simulator leaves remote-controller memory fresh throughout recorded warm-up,
+matching selection/reload at the first active frame in both UI and CLI runs.
 All candidates are limited to a 0.15 command change per 100 ms. PID integral
 back-calculation prevents windup at those bounds. Jev still chooses the action.
 The path gains/limits below are initial engineering defaults, not tuned results.

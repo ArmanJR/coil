@@ -372,6 +372,30 @@ class HTTPTests(unittest.TestCase):
         for path in ("/server.py", "/../README.md", "/models/tinyphysics.onnx"):
             self.assertEqual(self.request("GET", path)[0], 404)
 
+    def test_analysis_route_is_read_only_and_reports_storage_errors(self):
+        fixture = {
+            "runs": [],
+            "warnings": [],
+            "loaded_at_utc": "2026-10-30T05:00:00+00:00",
+        }
+        with (
+            patch.object(server, "load_analysis", return_value=fixture),
+            patch.object(server, "start_live") as start,
+        ):
+            status, body, mime = self.request("GET", "/api/analysis")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body), fixture)
+            self.assertIn("application/json", mime)
+            start.assert_not_called()
+        with patch.object(
+            server,
+            "load_analysis",
+            side_effect=server.ResultsError("Saved results could not be read."),
+        ):
+            status, body, _ = self.request("GET", "/api/analysis")
+            self.assertEqual(status, 503)
+            self.assertIn("could not be read", json.loads(body)["error"])
+
     def test_invalid_json_returns_readable_error(self):
         status, body, _ = self.request(
             "POST", "/api/simulate", "{", {"Content-Type": "application/json"}

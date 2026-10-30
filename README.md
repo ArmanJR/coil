@@ -26,6 +26,41 @@ Three synthetic scenarios work without downloading data. For dataset roads, extr
 - **Reload:** apply controller code edits while preserving the physics history. Controller memory resets; a paused reload also advances one step. For PID, UI gains override the source defaults.
 - **Driving view:** follow the car or view the full route. Blue shows your projected path; green shows the target. Telemetry tracks steering, lateral acceleration, jerk, error, and PID contributions.
 
+## Analysis
+
+Open **Analysis** in the header (or `/#analysis`) to explore saved controller
+results. Opening the page pauses playback; an in-flight frame may finish, but no
+further decisions are requested. Returning to Simulation preserves the ride and
+leaves it paused. Simulation keyboard shortcuts are inactive on Analysis.
+
+- Filter completed runs by source, road, controller, and inclusive UTC dates.
+- Rank selected controllers by challenge score, tracking RMSE, jerk RMS, full-ride
+  path RMSE, or maximum projected offset. Every metric is lower-is-better.
+- The leaderboard uses only common roads with matching total, active, and scored
+  frame counts and simulated duration. It takes the median of unique runs per
+  controller/road/length, averages matching lengths within each road, then weights
+  roads equally. Mixed-controller rides are excluded from rankings. Missing path
+  measurements stay unknown; path rankings require full active-frame coverage.
+- Inspect progress charts for one road and run length. Click a point or a history
+  row's **Details** button for all stored metrics, controller settings/history,
+  timing, API/cache counts, cost, and run identifiers.
+- **Export filtered CSV** includes the joined score and path summaries. **Refresh
+  results** reads runs completed by other sessions; a pending local completion
+  refreshes the page automatically.
+
+The read-only `/api/analysis` endpoint reads `results/runs.csv` and joins optional
+`path_metrics.csv` rows by fingerprint, honoring `RUN_RESULTS_PATH`. It shares the
+CSV writer's locks and reports invalid rows without modifying the ledger.
+No OpenRouter requests or simulation replays are needed to view analysis.
+
+History contains unique completed outcomes, not failed/abandoned attempts or
+every replay. Exact reruns retain the first result's timing and cost, so displayed
+spend is not total account billing. Older missing path metrics and full frame
+traces cannot be reconstructed from these summary CSVs. Controller settings are
+visible, but source revisions and dataset content hashes were not recorded;
+comparisons assume unchanged road files and scoring. A leaderboard based on one
+road or a few runs is not evidence of general performance.
+
 ## Simulation and controllers
 
 TinyPhysics is an autoregressive model trained to mimic a bicycle-model simulator with realistic driving noise, with an architecture similar to [comma.ai's ML Controls Sim](https://blog.comma.ai/096release/#ml-controls-sim). Every 100 ms, it predicts lateral acceleration from steering, speed, forward acceleration, road roll, and prior lateral acceleration.
@@ -67,7 +102,7 @@ Each request also includes calculated tracking error, signed error rate, change
 in absolute error, whether the error is growing/shrinking/steady, observed lateral
 jerk, and accumulated signed error integrated over 100 ms frames. Derivatives are
 `null` until a previous observation exists. The PID proposal uses the unchanged
-baseline gains and per-frame PID formula, with memory updated during warm-up;
+baseline gains and per-frame PID formula, starting with fresh memory at frame 100;
 the time-integrated error signal is separately expressed in m/s. The UI's frame
 inputs expose these signals and the PID proposal. Failed decisions do not advance
 PID memory. Reset/reload starts fresh memory. Changed prompts and candidates cause
@@ -86,6 +121,15 @@ stop the run instead of silently making more paid requests. Set `JEV_CACHE_PATH`
 in the server environment to choose another database. Stop simulations before
 deleting that file to deliberately start a fresh cache. Earlier runs from before
 this feature were not saved and cannot be replayed from cache.
+
+Warm-up uses recorded steering and does not call remote controllers or update
+their memory. Selecting Jev before warm-up, selecting it just before frame 100,
+reloading before that first frame, and resetting with Jev already selected all
+start with the same fresh state. This rule applies to both the UI and CLI; local
+controllers retain their existing warm-up behavior. Reloading or switching after
+driving starts intentionally changes controller memory and can cause cache misses.
+Historical runs that accumulated Jev memory during warm-up have different inputs;
+their cached responses remain stored but do not define new-run initialization.
 
 Warm-up makes no paid calls. A complete 600-frame segment makes **500 decisions**,
 of which 400 are scored; only cache misses are billed. API latency can make playback slower than

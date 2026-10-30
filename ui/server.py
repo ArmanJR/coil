@@ -31,8 +31,8 @@ import pandas as pd  # noqa: E402
 
 from controllers import ControllerError  # noqa: E402
 from run_results import ResultsError  # noqa: E402
+from ui.analysis import load_analysis  # noqa: E402
 from tinyphysics import (  # noqa: E402
-    CONTEXT_LENGTH,
     CONTROL_START_IDX,
     COST_END_IDX,
     DEL_T,
@@ -199,6 +199,10 @@ class TracedController:
     def __init__(self, controller):
         self.controller = controller
         self.trace = []
+
+    @property
+    def decision_mode(self):
+        return getattr(self.controller, "decision_mode", "local")
 
     def prepare_step(self, step_index, previous_steering, active):
         prepare = getattr(self.controller, "prepare_step", None)
@@ -517,7 +521,9 @@ def run_simulation(model, config):
         "speed": sim.data["v_ego"].tolist(),
         "forwardAcceleration": sim.data["a_ego"].tolist(),
         "roadRoll": sim.data["roll_lataccel"].tolist(),
-        "trace": [None] * CONTEXT_LENGTH + traced.trace,
+        # Remote drivers have no warm-up decisions; keep every trace aligned
+        # with the corresponding simulator frame for both controller modes.
+        "trace": [None] * (len(sim.data) - len(traced.trace)) + traced.trace,
     }
 
 
@@ -538,6 +544,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/analysis":
+            try:
+                self.send_json(200, load_analysis())
+            except ResultsError as error:
+                LOGGER.warning("Analysis unavailable: %s", error)
+                self.send_json(503, {"error": str(error)})
+            except Exception:
+                LOGGER.exception("Unexpected analysis read failure")
+                self.send_json(
+                    500, {"error": "Analysis could not be loaded. See the server log."}
+                )
+            return
         if path == "/api/config":
             self.send_json(
                 200,

@@ -12,7 +12,9 @@ offset, so it cannot explicitly recover the projected route after drift.
 Known limitations: a fresh PID starts with zero integral instead of matching the
 previous steering; acceleration tracking does not ensure position tracking; the
 official score excludes the final ten seconds of a 600-frame segment. Reloading
-resets controller memory. Warm-up updates memory without paid requests.
+resets controller memory. The simulator skips remote-controller updates during
+warm-up, so frame 100 starts with fresh memory whether selected before or after
+warm-up. The inactive update branch remains for compatibility with direct callers.
 
 Responses are cached by the complete request, not by source-code contents.
 The historical ``jev`` name and cache identity are intentionally preserved.
