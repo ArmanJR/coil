@@ -1476,6 +1476,99 @@ kbd {
     padding: 10px 12px;
   }
 }
+.remote-decision {
+  flex-shrink: 0;
+  min-width: 0;
+  grid-column: 1 / -1;
+  padding: 0 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.remote-decision .panel-title {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.remote-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--blue);
+  margin: 12px 0 8px;
+  font-size: 13px;
+}
+.remote-status .spinner {
+  width: 14px;
+  height: 14px;
+}
+.remote-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.remote-metrics {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+.remote-metrics > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.remote-metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+.remote-metrics b {
+  font: 12px var(--mono);
+  white-space: nowrap;
+}
+.remote-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.remote-result strong {
+  color: var(--green);
+}
+.remote-result span {
+  color: var(--muted);
+}
+.remote-decision details {
+  margin-top: 12px;
+  font-size: 11px;
+  overflow-x: auto;
+}
+.remote-decision summary {
+  cursor: pointer;
+  color: var(--blue);
+}
+.remote-decision table {
+  width: 100%;
+  text-align: left;
+  margin: 12px 0;
+  border-collapse: collapse;
+}
+.remote-decision th,
+.remote-decision td {
+  padding: 5px;
+  border-bottom: 1px solid var(--line);
+}
+.remote-decision .chosen {
+  color: var(--green);
+}
+.remote-decision pre {
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  background: #101216;
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -19,6 +19,8 @@ from typing import List, Union, Tuple, Dict
 from tqdm.contrib.concurrent import process_map
 
 from controllers import BaseController
+from run_results import RunResults
+from path_tracking import PathTracker
 
 sns.set_theme()
 signal.signal(signal.SIGINT, signal.SIG_DFL)  # Enable Ctrl-C on plot windows
@@ -105,6 +107,8 @@ class TinyPhysicsSimulator:
     self.reset()
 
   def reset(self) -> None:
+    self.results = RunResults()
+    self.path_tracker = PathTracker()
     self.step_idx = CONTEXT_LENGTH
     state_target_futureplans = [self.get_state_target_futureplan(i) for i in range(self.step_idx)]
     self.state_history = [x[0] for x in state_target_futureplans]
@@ -142,9 +146,20 @@ class TinyPhysicsSimulator:
     self.current_lataccel_history.append(self.current_lataccel)
 
   def control_step(self, step_idx: int) -> None:
-    action = self.controller.update(self.target_lataccel_history[step_idx], self.current_lataccel, self.state_history[step_idx], future_plan=self.futureplan)
+    prepare = getattr(self.controller, "prepare_step", None)
+    if prepare is not None:
+      prepare(step_idx, self.action_history[-1], step_idx >= CONTROL_START_IDX)
+    prepare_path = getattr(self.controller, "prepare_path", None)
+    if prepare_path is not None:
+      prepare_path(self.path_tracker.feedback())
+    action = self.controller.update(
+      self.target_lataccel_history[step_idx],
+      self.current_lataccel,
+      self.state_history[step_idx],
+      future_plan=self.futureplan,
+    )
     if step_idx < CONTROL_START_IDX:
-      action = self.data['steer_command'].values[step_idx]
+      action = self.data["steer_command"].values[step_idx]
     action = np.clip(action, STEER_RANGE[0], STEER_RANGE[1])
     self.action_history.append(action)
 
@@ -162,13 +177,21 @@ class TinyPhysicsSimulator:
     )
 
   def step(self) -> None:
+    if self.step_idx >= len(self.data):
+      self.results.complete(self, CONTROL_START_IDX, COST_END_IDX, DEL_T)
+      return
+    started = self.results.begin_step() if self.step_idx >= CONTROL_START_IDX else None
     state, target, futureplan = self.get_state_target_futureplan(self.step_idx)
     self.state_history.append(state)
     self.target_lataccel_history.append(target)
     self.futureplan = futureplan
     self.control_step(self.step_idx)
     self.sim_step(self.step_idx)
+    if started is not None:
+      self.path_tracker.update(state.v_ego, self.current_lataccel, target, DEL_T)
+      self.results.record_step(self.controller, self.step_idx, started)
     self.step_idx += 1
+    self.results.complete(self, CONTROL_START_IDX, COST_END_IDX, DEL_T)
 
   def plot_data(self, ax, lines, axis_labels, title) -> None:
     ax.clear()

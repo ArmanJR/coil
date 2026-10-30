@@ -81,7 +81,7 @@ function Chart({ samples, field, title, unit, target = false, limit = 2 }) {
   );
 }
 
-export default function Telemetry({ samples, costs, finished }) {
+export default function Telemetry({ samples, costs, finished, pathMetrics }) {
   const current = samples.at(-1);
   return (
     <aside className="telemetry-panel">
@@ -138,6 +138,18 @@ export default function Telemetry({ samples, costs, finished }) {
             className={Math.abs(current?.offset || 0) > 1.8 ? "text-amber" : ""}
           >
             {signed(current?.offset)} <small>m</small>
+          </b>
+        </div>
+        <div>
+          <span>Projected heading error</span>
+          <b>
+            {signed(current?.headingError)} <small>°</small>
+          </b>
+        </div>
+        <div>
+          <span>Path RMSE · full ride</span>
+          <b>
+            {fixed(pathMetrics?.path_rmse_m)} <small>m</small>
           </b>
         </div>
       </div>

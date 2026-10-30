@@ -2,7 +2,7 @@
 # requires-python = ">=3.11,<3.12"
 # dependencies = [
 #   "numpy", "onnxruntime", "pandas==2.1.2", "matplotlib==3.8.1",
-#   "seaborn==0.13.2", "tqdm",
+#   "seaborn==0.13.2", "tqdm", "python-dotenv==1.2.1",
 # ]
 # ///
 """Local UI for the existing TinyPhysics simulator. Run with `uv run ui/server.py`."""
@@ -29,6 +29,8 @@ sys.path.insert(0, str(ROOT))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from controllers import ControllerError  # noqa: E402
+from run_results import ResultsError  # noqa: E402
 from tinyphysics import (  # noqa: E402
     CONTEXT_LENGTH,
     CONTROL_START_IDX,
@@ -76,8 +78,20 @@ def available_controllers():
     return sorted(
         path.stem
         for path in (ROOT / "controllers").glob("*.py")
-        if path.stem != "__init__" and path.stem.isidentifier()
+        if path.stem != "__init__" and path.stem.replace("-", "_").isidentifier()
     )
+
+
+def controller_modes():
+    modes = {}
+    for name in available_controllers():
+        try:
+            controller = importlib.import_module(f"controllers.{name}").Controller
+            modes[name] = getattr(controller, "decision_mode", "local")
+        except Exception:
+            LOGGER.warning("Cannot inspect controller metadata controller=%s", name)
+            modes[name] = "local"
+    return modes
 
 
 def validate_request(payload):
@@ -186,6 +200,16 @@ class TracedController:
         self.controller = controller
         self.trace = []
 
+    def prepare_step(self, step_index, previous_steering, active):
+        prepare = getattr(self.controller, "prepare_step", None)
+        if prepare is not None:
+            prepare(step_index, previous_steering, active)
+
+    def prepare_path(self, feedback):
+        prepare = getattr(self.controller, "prepare_path", None)
+        if prepare is not None:
+            prepare(feedback)
+
     def update(self, target_lataccel, current_lataccel, state, future_plan):
         error = float(target_lataccel - current_lataccel)
         pid = all(
@@ -216,6 +240,7 @@ class TracedController:
                 "input": float(current_lataccel),
                 "raw": action,
                 "terms": terms,
+                "decision": getattr(self.controller, "decision", None),
             }
         )
         return action
@@ -286,6 +311,7 @@ class LiveSession:
             "costEnd": COST_END_IDX,
             "totalSteps": len(self.sim.data),
             "config": self.config,
+            "pathMetrics": self.sim.path_tracker.metrics(),
         }
 
     def advance(self, payload):
@@ -354,6 +380,9 @@ class LiveSession:
             "roll": float(vehicle["roll_lataccel"]),
             "jerk": (self.sim.current_lataccel - previous) / DEL_T,
             "controller": settings["controller"],
+            "headingError": math.degrees(
+                self.sim.path_tracker.feedback()["heading_error_rad"]
+            ),
             **trace,
         }
         count = min(self.sim.step_idx, COST_END_IDX) - CONTROL_START_IDX
@@ -516,6 +545,7 @@ class Handler(BaseHTTPRequestHandler):
                     "scenarios": SCENARIOS,
                     "segments": available_segments(),
                     "controllers": available_controllers(),
+                    "controllerModes": controller_modes(),
                     "defaultGains": DEFAULT_GAINS,
                 },
             )
@@ -574,6 +604,9 @@ class Handler(BaseHTTPRequestHandler):
                 config = validate_request(payload)
                 result = run_simulation(self.model, config)
             self.send_json(200, result)
+        except (ControllerError, ResultsError) as error:
+            LOGGER.warning("Controller stopped: %s", error)
+            self.send_json(502, {"error": str(error)})
         except (ValueError, KeyError, pd.errors.ParserError) as error:
             LOGGER.warning("Rollout rejected (%s)", type(error).__name__)
             # Do not return raw data parsing errors, which can include CSV contents.

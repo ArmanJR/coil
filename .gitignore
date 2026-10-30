@@ -6,3 +6,6 @@ models/tinyphysics_*.onnx
 ui/node_modules/
 ui/dist/
 data-non-600/
+.env
+cache/
+results/

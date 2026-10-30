@@ -1,4 +1,11 @@
+class ControllerError(RuntimeError):
+  """A controller failure whose message is safe to show in the UI."""
+
+
 class BaseController:
+  def prepare_step(self, step_index, previous_steering, active):
+    """Optional simulator context; inactive steps use recorded steering."""
+
   def update(self, target_lataccel, current_lataccel, state, future_plan):
     """
     Args:

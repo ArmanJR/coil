@@ -22,6 +22,7 @@ export default function useSimulation() {
   const [error, setError] = useState("");
   const [speed, setSpeed] = useState(1);
   const [events, setEvents] = useState([]);
+  const [pendingFrame, setPendingFrame] = useState(null);
   const controls = useRef(defaults);
   const live = useRef(null);
   const history = useRef([]);
@@ -143,6 +144,8 @@ export default function useSimulation() {
       if (data.type === "paused") {
         pendingPause.current.get(data.requestId)?.();
         pendingPause.current.delete(data.requestId);
+      } else if (data.type === "pending" && live.current?.id === data.id) {
+        setPendingFrame(data.frame === null ? null : data);
       } else if (data.type === "running") {
         playing.current = data.value;
         setRunning(data.value);
@@ -249,6 +252,7 @@ export default function useSimulation() {
     error,
     speed,
     events,
+    pendingFrame,
     start,
     step,
     toggle,

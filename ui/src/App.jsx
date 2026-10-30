@@ -2,11 +2,14 @@ import { useEffect, useRef } from "react";
 import DriveView from "./DriveView.jsx";
 import Telemetry, { fixed, signed } from "./Telemetry.jsx";
 import useSimulation from "./useSimulation.js";
+import RemoteDecision from "./RemoteDecision.jsx";
 
 const names = {
   pid: "PID controller",
   zero: "Zero steering",
   manual: "Manual",
+  jev: "Jev v1 · acceleration tracking",
+  "jev-v2": "Jev v2 · path recovery",
 };
 
 // Curated local segments, each verified to contain exactly 600 data frames.
@@ -106,6 +109,8 @@ export default function App() {
   const sim = useSimulation();
   const current = sim.samples.at(-1);
   const manual = sim.settings.controller === "manual";
+  const remote =
+    sim.catalog?.controllerModes?.[sim.settings.controller] === "remote";
   const controllerChoice = useRef("pid");
   const keys = useRef(new Set());
   const actions = useRef(sim);
@@ -167,6 +172,8 @@ export default function App() {
   function selectDriver(next) {
     keys.current.clear();
     const controller = next === "manual" ? "manual" : controllerChoice.current;
+    if (sim.catalog?.controllerModes?.[controller] === "remote")
+      void sim.pause();
     sim.changeSettings({ controller, steering: 0 });
     sim.record(`${names[controller] || controller} selected`);
   }
@@ -284,7 +291,12 @@ export default function App() {
             title="Advance one 100 ms step"
             aria-label="Step simulation"
             onClick={() => void sim.step()}
-            disabled={blocked || sim.running || sim.session?.finished}
+            disabled={
+              blocked ||
+              sim.running ||
+              !!sim.pendingFrame ||
+              sim.session?.finished
+            }
           >
             ▷|
           </button>
@@ -293,7 +305,7 @@ export default function App() {
             title="Reset the simulation"
             aria-label="Reset simulation"
             onClick={() => void sim.start()}
-            disabled={sim.busy}
+            disabled={sim.busy || !!sim.pendingFrame}
           >
             ↺
           </button>
@@ -336,14 +348,14 @@ export default function App() {
             <button
               className={!manual ? "selected" : ""}
               onClick={() => selectDriver("controller")}
-              disabled={sim.busy}
+              disabled={sim.busy || !!sim.pendingFrame}
             >
               Controller
             </button>
             <button
               className={manual ? "selected" : ""}
               onClick={() => selectDriver("manual")}
-              disabled={sim.busy}
+              disabled={sim.busy || !!sim.pendingFrame}
             >
               Manual
             </button>
@@ -354,8 +366,13 @@ export default function App() {
               <select
                 id="controller-select"
                 value={sim.settings.controller}
-                disabled={sim.busy}
+                disabled={sim.busy || !!sim.pendingFrame}
                 onChange={(event) => {
+                  if (
+                    sim.catalog?.controllerModes?.[event.target.value] ===
+                    "remote"
+                  )
+                    void sim.pause();
                   controllerChoice.current = event.target.value;
                   sim.changeSettings({ controller: event.target.value });
                   sim.record(`${event.target.value} selected`);
@@ -371,7 +388,7 @@ export default function App() {
                 <code>controllers/{sim.settings.controller}.py</code>
                 <button
                   onClick={sim.reloadCode}
-                  disabled={blocked}
+                  disabled={blocked || !!sim.pendingFrame}
                   title="Reload the local Python module and reset controller memory. When paused, also advances one step. Current PID sliders still apply."
                 >
                   ↻ Reload
@@ -393,6 +410,17 @@ export default function App() {
               <span>{manual ? "STEERING INPUT" : "APPLIED STEERING"}</span>
             </div>
           </div>
+          {remote && (
+            <RemoteDecision
+              sample={
+                current?.controller === sim.settings.controller ? current : null
+              }
+              pending={sim.pendingFrame}
+              session={sim.session}
+              running={sim.running}
+              error={sim.error}
+            />
+          )}
           {manual ? (
             <div className="manual-control">
               <label className="sr-only" htmlFor="manual-steering">
@@ -507,13 +535,13 @@ export default function App() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : !remote ? (
             <div className="controller-info">
               {sim.settings.controller === "zero"
                 ? "Constant zero steering."
                 : "Running your local Python controller."}
             </div>
-          )}
+          ) : null}
           <div className="live-hint">
             <span className="connection-dot" />
             {sim.running
@@ -593,11 +621,15 @@ export default function App() {
           >
             <i style={{ width: `${(time / duration) * 100}%` }} />
           </div>
-          <Decision sample={current} controller={sim.settings.controller} />
+          <Decision
+            sample={current}
+            controller={current?.controller || sim.settings.controller}
+          />
         </div>
         <Telemetry
           samples={sim.samples}
           costs={sim.session?.costs}
+          pathMetrics={sim.session?.pathMetrics}
           finished={sim.session?.finished}
         />
       </main>

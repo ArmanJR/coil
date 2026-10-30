@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads";
 
 // Run the actual browser worker with a Node message bridge and a deterministic
 // HTTP fixture. Real ONNX and session semantics are covered by Python tests.
-async function harness(t, id = "test") {
+async function harness(t, id = "test", delay = 8) {
   const worker = new Worker(
     `
     const { parentPort, workerData } = require('node:worker_threads');
@@ -12,7 +12,7 @@ async function harness(t, id = "test") {
     const steps = new Map();
     globalThis.fetch = async (_url, options) => {
       const request = JSON.parse(options.body);
-      await new Promise(resolve => setTimeout(resolve, 8));
+      await new Promise(resolve => setTimeout(resolve, workerData.delay));
       const previous = steps.get(request.id) ?? 99;
       if (request.expectedStep !== previous || request.steering === 99) {
         return new Response(JSON.stringify({error:'Fixture rejected step'}), {status:400});
@@ -27,6 +27,7 @@ async function harness(t, id = "test") {
     {
       eval: true,
       workerData: {
+        delay,
         module: new URL("./simulation.worker.js", import.meta.url).href,
       },
     },
@@ -153,4 +154,33 @@ test("an HTTP failure stops the clock and surfaces the server error", async (t) 
   const failure = await h.wait((message) => message.type === "error");
   assert.equal(failure.message, "Fixture rejected step");
   assert.equal(h.samples().length, 0);
+});
+
+test("slow decisions report pending and repeated steps do not queue requests", async (t) => {
+  const h = await harness(t, "slow", 150);
+  h.worker.postMessage({ type: "step" });
+  const pending = await h.wait(
+    (message) => message.type === "pending" && message.frame === 100,
+  );
+  assert.equal(pending.controller, "manual");
+  for (let i = 0; i < 5; i += 1) h.worker.postMessage({ type: "step" });
+  await h.wait(
+    (message) => message.type === "pending" && message.frame === null,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(h.samples().length, 1);
+});
+
+test("pause during a slow decision finishes only the in-flight frame", async (t) => {
+  const h = await harness(t, "slow", 150);
+  h.worker.postMessage({ type: "run" });
+  await h.wait(
+    (message) => message.type === "pending" && message.frame === 100,
+  );
+  h.worker.postMessage({ type: "pause", requestId: 9 });
+  await h.wait(
+    (message) => message.type === "paused" && message.requestId === 9,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(h.samples().length, 1);
 });

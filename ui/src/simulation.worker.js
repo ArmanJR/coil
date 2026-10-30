@@ -22,6 +22,12 @@ async function advance() {
   const id = session.id;
   const reload = reloadNext;
   reloadNext = false;
+  self.postMessage({
+    type: "pending",
+    id,
+    frame: session.step + 1,
+    controller: settings.controller,
+  });
   pending = (async () => {
     try {
       const result = await api("live/step", {
@@ -47,6 +53,7 @@ async function advance() {
     await pending;
   } finally {
     pending = null;
+    self.postMessage({ type: "pending", id, frame: null });
   }
 }
 
@@ -90,11 +97,11 @@ self.onmessage = async ({ data }) => {
       self.postMessage({ type: "paused", requestId: data.requestId });
       break;
     case "step":
-      if (running) return;
-      await pending;
+      if (running || pending) return;
       await advance();
       break;
     case "reload":
+      if (pending) return;
       reloadNext = true;
       if (!running) {
         await pending;

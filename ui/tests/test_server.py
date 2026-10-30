@@ -3,6 +3,7 @@
 import http.client
 import json
 import math
+import os
 import tempfile
 import threading
 import unittest
@@ -16,6 +17,20 @@ from controllers.pid import Controller as PID
 from controllers.zero import Controller as Zero
 from tinyphysics import State, TinyPhysicsModel
 from ui import server
+
+
+def setUpModule():
+    global results_directory, results_env
+    results_directory = tempfile.TemporaryDirectory()
+    results_env = patch.dict(
+        os.environ, {"RUN_RESULTS_PATH": str(Path(results_directory.name) / "runs.csv")}
+    )
+    results_env.start()
+
+
+def tearDownModule():
+    results_env.stop()
+    results_directory.cleanup()
 
 
 class ValidationTests(unittest.TestCase):
