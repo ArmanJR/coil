@@ -1,69 +1,69 @@
-<div align="center">
-<h1>comma Controls Challenge v2</h1>
+# coil
 
+unusual self driving cars
 
-<h3>
-  <a href="https://comma.ai/leaderboard">Leaderboard</a>
-  <span> · </span>
-  <a href="https://comma.ai/jobs">comma.ai/jobs</a>
-  <span> · </span>
-  <a href="https://discord.comma.ai">Discord</a>
-  <span> · </span>
-  <a href="https://x.com/comma_ai">X</a>
-</h3>
+A workspace for experimenting with steering controllers and seeing their effect on a simulated ride. Built on [comma.ai's Controls Challenge v2](https://github.com/commaai/controls_challenge), using its TinyPhysics model, controller interface, and scoring.
 
-</div>
+## Run
 
-Machine learning models can drive cars, paint beautiful pictures and write passable rap. But they famously suck at doing low level controls. Your goal is to write a good controller. This repo contains a model that simulates the lateral movement of a car, given steering commands. The goal is to drive this "car" well for a given desired trajectory.
+Requires Node.js 20.19+ or 22.12+ and [uv](https://docs.astral.sh/uv/). Run from the repository root; uv manages Python 3.11 and the simulator dependencies.
 
-## Getting Started
-We'll be using a synthetic dataset based on the [comma-steering-control](https://github.com/commaai/comma-steering-control) dataset for this challenge. These are actual car and road states from [openpilot](https://github.com/commaai/openpilot) users.
-
-```
-# install required packages
-# recommended python==3.11
-pip install -r requirements.txt
-
-# test this works
-python tinyphysics.py --model_path ./models/tinyphysics.onnx --data_path ./data/00000.csv --debug --controller pid
+```sh
+npm --prefix ui ci
+npm --prefix ui run build
+uv run ui/server.py
 ```
 
-There are some other scripts to help you get aggregate metrics:
-```
-# batch Metrics of a controller on lots of routes
-python tinyphysics.py --model_path ./models/tinyphysics.onnx --data_path ./data --num_segs 100 --controller pid
+Open **http://127.0.0.1:8000**. Use `--port 8001` for another port or `--verbose` for per-step logs.
 
-# generate a report comparing two controllers
-python eval.py --model_path ./models/tinyphysics.onnx --data_path ./data --num_segs 100 --test_controller pid --baseline_controller zero
+Three synthetic scenarios work without downloading data. For dataset roads, extract the [official dataset archive](https://huggingface.co/datasets/commaai/commaSteeringControl/resolve/main/data/SYNTHETIC_V0.zip) so the CSV files sit directly in `data/`, then refresh the UI. The UI does not download data automatically.
 
-```
-You can also use the notebook at [`experiment.ipynb`](https://github.com/commaai/controls_challenge/blob/master/experiment.ipynb) for exploration.
+## UI
 
-## TinyPhysics
-This is a "simulated car" that has been trained to mimic a very simple physics model (bicycle model) based simulator, given realistic driving noise. It is an autoregressive model similar to [ML Controls Sim](https://blog.comma.ai/096release/#ml-controls-sim) in architecture. Its inputs are the car velocity (`v_ego`), forward acceleration (`a_ego`), lateral acceleration due to road roll (`road_lataccel`), current car lateral acceleration (`current_lataccel`), and a steer input (`steer_action`), then it predicts the resultant lateral acceleration of the car.
+- **Input / Hard roads:** select a scenario, local CSV, or one of five curated 600-frame roads. Changing roads resets the run; missing files are disabled.
+- **Playback:** Run/Pause with `Space`, single-step, reset, or choose 0.5×, 1×, 2×, 3×, or 5×. The timer starts after the 10-second warm-up. Switching tabs pauses playback.
+- **Controller:** choose PID, zero steering, or your own controller. PID gains apply on the next step. **Manual** steering uses the slider, A/D, arrow keys, or on-screen buttons; held controls center on release.
+- **Reload:** apply controller code edits while preserving the physics history. Controller memory resets; a paused reload also advances one step. For PID, UI gains override the source defaults.
+- **Driving view:** follow the car or view the full route. Blue shows your projected path; green shows the target. Telemetry tracks steering, lateral acceleration, jerk, error, and PID contributions.
 
-## Controllers
-Your controller should implement a new [controller](https://github.com/commaai/controls_challenge/tree/master/controllers). This controller can be passed as an arg to run in-loop in the simulator to autoregressively predict the car's response.
+## Simulation and controllers
+
+TinyPhysics is an autoregressive model trained to mimic a bicycle-model simulator with realistic driving noise, with an architecture similar to [comma.ai's ML Controls Sim](https://blog.comma.ai/096release/#ml-controls-sim). Every 100 ms, it predicts lateral acceleration from steering, speed, forward acceleration, road roll, and prior lateral acceleration.
+
+The synthetic dataset is based on [comma-steering-control](https://github.com/commaai/comma-steering-control), using car and road states from [openpilot](https://github.com/commaai/openpilot) users. The UI's built-in scenarios are demonstrations, not benchmark results.
+
+The displayed ride is a **kinematic projection** of speed and lateral acceleration (`yaw_rate = lateral_acceleration / speed`). TinyPhysics predicts lateral acceleration, not position; road width and wheel angle are illustrative. Controllers receive acceleration feedback, and projected lateral offset is not scored.
+
+Add `controllers/<name>.py` with a `Controller()` class implementing `update(target_lataccel, current_lataccel, state, future_plan)` and returning a steering command. See [the PID controller](controllers/pid.py) for an example. Refresh the UI to discover a new controller; use Reload for subsequent edits.
 
 ## Evaluation
-Each rollout will result in 2 costs:
-- `lataccel_cost`: $\dfrac{\Sigma(\mathrm{actual{\textunderscore}lat{\textunderscore}accel} - \mathrm{target{\textunderscore}lat{\textunderscore}accel})^2}{\text{steps}} * 100$
-- `jerk_cost`: $\dfrac{(\Sigma( \mathrm{actual{\textunderscore}lat{\textunderscore}accel_t} - \mathrm{actual{\textunderscore}lat{\textunderscore}accel_{t-1}}) / \Delta \mathrm{t} )^{2}}{\text{steps} - 1} * 100$
 
-It is important to minimize both costs. `total_cost`: $(\mathrm{lat{\textunderscore}accel{\textunderscore}cost} * 50) + \mathrm{jerk{\textunderscore}cost}$
+Lower scores are better. Scoring uses samples 100–499: the first 40 seconds after warm-up.
 
-## Full evaluation
-
-```
-python eval.py --model_path ./models/tinyphysics.onnx --data_path ./data --num_segs 5000 --test_controller <insert your controller name> --baseline_controller pid
+```text
+lataccel_cost = 100 × mean((actual − target)²)
+jerk_cost     = 100 × mean((diff(actual) / 0.1)²)
+total_cost    = 50 × lataccel_cost + jerk_cost
 ```
 
-## Changelog
-- We ARCHIVED the challenge see [comma.ai/leaderboard](https://comma.ai/leaderboard) for active challenges 
-- With [this commit](https://github.com/commaai/controls_challenge/commit/4282a06183c10d2f593fc891b6bc7a0859264e88) we fixed a bug that caused the simulator model to be initialized wrong.
-- With [this commit](https://github.com/commaai/controls_challenge/commit/fdafbc64868b70d6ec9c305ab5b52ec501ea4e4f) we made the simulator more robust to outlier actions and changed the cost landscape to incentivize more aggressive and interesting solutions.
+Compare controllers on local dataset segments and generate `report.html`:
 
-## Work at comma
+```sh
+uv run --python 3.11 --with-requirements requirements.txt --no-project \
+  python eval.py --model_path models/tinyphysics.onnx --data_path data \
+  --num_segs 100 --test_controller pid --baseline_controller zero
+```
 
-Like this sort of stuff? You might want to work at comma!
-[comma.ai/jobs](https://comma.ai/jobs)
+For a single rollout, use `tinyphysics.py` with `--model_path`, `--data_path data/13301.csv`, and `--controller pid`; add `--debug` for plots.
+
+## Development
+
+Keep the Python server running and use `npm --prefix ui run dev` for the Vite development UI. Rebuild to update the UI served on port 8000.
+
+```sh
+npm --prefix ui test
+npm --prefix ui run lint
+npm --prefix ui run build
+uv run --python 3.11 --with-requirements requirements.txt --no-project \
+  python -m unittest discover -s ui/tests -v
+```
