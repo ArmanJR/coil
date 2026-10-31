@@ -7,5 +7,5 @@ ui/node_modules/
 ui/dist/
 data-non-600/
 .env
-cache/
-results/
+# cache/
+# results/
