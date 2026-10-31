@@ -9,3 +9,7 @@ data-non-600/
 .env
 # cache/
 # results/
+cache/backups/
+cache/*.sqlite3-journal
+cache/*.sqlite3-wal
+cache/*.sqlite3-shm

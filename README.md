@@ -6,17 +6,31 @@ A workspace for experimenting with steering controllers and seeing their effect 
 
 ## Run
 
-Requires Node.js 20.19+ or 22.12+ and [uv](https://docs.astral.sh/uv/). Run from the repository root; uv manages Python 3.11 and the simulator dependencies.
+Requires Git, Make, Node.js 20.19+ or 22.12+, and [uv](https://docs.astral.sh/uv/). Run from the repository root; uv manages Python 3.11 and the simulator dependencies.
 
 ```sh
-npm --prefix ui ci
-npm --prefix ui run build
-uv run ui/server.py
+make dev-prepare
 ```
 
-Open **http://127.0.0.1:8000**. Use `--port 8001` for another port or `--verbose` for per-step logs.
+This pulls the current branch's upstream with `git pull --ff-only`, downloads the
+official dataset if neither data directory contains CSVs, and sorts existing CSVs
+by data-row count (excluding the header). Exactly 600-frame roads stay in `data/`;
+all other lengths go to `data-non-600/`. It then installs the locked UI dependencies,
+builds the UI, and runs its server in the foreground. Existing CSVs are reused;
+conflicting filenames are never overwritten. Git authentication must already be
+configured for noninteractive use, and the branch must have an upstream.
 
-Three synthetic scenarios work without downloading data. For dataset roads, extract the [official dataset archive](https://huggingface.co/datasets/commaai/commaSteeringControl/resolve/main/data/SYNTHETIC_V0.zip) so the CSV files sit directly in `data/`, then refresh the UI. The UI does not download data automatically.
+Stop running simulations/server processes before `make dev-prepare`: it temporarily
+stashes changes to the tracked cache during the pull and restores local-only
+records afterward, with pulled records winning conflicts. Recovery snapshots stay
+in ignored `cache/backups/`; a failed pull also retains its cache stash. Unrelated
+working changes follow normal Git pull rules; staged cache changes must first be
+committed or unstaged. Diverged branches require manual reconciliation.
+
+Open **http://127.0.0.1:8000**. To launch without pulling or preparing data, use
+`uv run ui/server.py`; add `--port 8001` for another port or `--verbose` for per-step logs.
+
+Three synthetic scenarios work without downloading data. `make dev-prepare` downloads and sorts the [official dataset archive](https://huggingface.co/datasets/commaai/commaSteeringControl/resolve/main/data/SYNTHETIC_V0.zip) when needed. Alternatively, extract it manually so the CSV files sit directly in `data/`, then refresh the UI. The UI itself does not download data automatically.
 
 ## UI
 
@@ -109,7 +123,7 @@ PID memory. Reset/reload starts fresh memory. Changed prompts and candidates cau
 cache misses automatically; older cached responses remain intact. These changes
 have offline correctness tests; driving evaluation so far is limited to road 13301.
 
-Responses are cached persistently in `cache/jev.sqlite3` (git-ignored). Identical
+Responses are cached persistently in `cache/jev.sqlite3` (tracked in Git). Identical
 requests reuse validated responses without contacting OpenRouter, including
 after a server restart. The key includes the model, prompt, frame inputs, recent
 history, and candidate commands. Changing those inputs causes cache misses;
@@ -121,6 +135,21 @@ stop the run instead of silently making more paid requests. Set `JEV_CACHE_PATH`
 in the server environment to choose another database. Stop simulations before
 deleting that file to deliberately start a fresh cache. Earlier runs from before
 this feature were not saved and cannot be replayed from cache.
+
+Run `make sync-cache` to fetch the current branch's upstream database and merge
+its records into `cache/jev.sqlite3`, without pulling code or changing HEAD.
+Remote responses replace differing local responses for the same request hash;
+local-only records survive, and remote deletions do not delete local records.
+The merge is transactional and repeatable. If upstream has no database yet, the
+command reports that and leaves the local cache unchanged. This target always
+uses the shared default path, regardless of `JEV_CACHE_PATH`.
+
+The small SQLite database is shared as a binary snapshot. Git cannot merge its
+rows itself; use these commands to reconcile records. Sync does not commit or
+push: publishing new records still requires an explicit Git commit and push.
+Stop simulations before committing the database. Backups and SQLite journal/WAL
+files are ignored. If cache size or collaboration grows, a separate cache service
+or artifact store will be more suitable than storing every snapshot in Git.
 
 Warm-up uses recorded steering and does not call remote controllers or update
 their memory. Selecting Jev before warm-up, selecting it just before frame 100,
@@ -201,7 +230,7 @@ For a single rollout, use `tinyphysics.py` with `--model_path`, `--data_path dat
 
 ## Run results
 
-Every unique completed ride appends one row to **`results/runs.csv`** (git-ignored).
+Every unique completed ride appends one row to **`results/runs.csv`** (tracked in Git).
 This includes live UI runs with any controller or manual steering, CLI rollouts,
 and each controller/baseline run from batch evaluation. Reset or abandoned runs
 are not recorded; saving happens at the end of the entire segment, not just the
